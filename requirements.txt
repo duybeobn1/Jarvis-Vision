@@ -1,0 +1,7 @@
+# Jarvis Vision - Phase 1
+# Python 3.11 is recommended for the first prototype.
+# 0.10.21 is the stable Python Tasks line available for this macOS setup.
+# MediaPipe 1.0.0 currently crashes during macOS hand-tracker startup here.
+mediapipe==0.10.21
+numpy>=1.26,<2
+opencv-contrib-python>=4.10,<5

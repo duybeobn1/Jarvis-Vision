@@ -1,0 +1,15 @@
+.DS_Store
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Downloaded ML assets and local recordings
+models/*.task
+recordings/*
+!recordings/.gitkeep
+
+# Local configuration
+.env
+*.local.json

@@ -16,12 +16,11 @@ The first successful demonstration should work as follows:
 
 1. The user says: **“Create a box.”**
 2. The camera detects both hands and their 3D landmarks.
-3. The user pinches with both hands.
-4. The two pinch points define opposite corners of a virtual box.
-5. Moving the hands changes the box size and position in real time.
-6. Hand orientation can control the box rotation.
-7. Releasing the pinch commits the object to the 3D scene.
-8. The user can say: **“Make it metallic,” “delete it,” “duplicate it,”** or **“make it larger.”**
+3. The thumb, index, and middle fingertips of each hand define six anchors.
+4. The system infers the remaining two corners of a virtual box.
+5. Moving the hands changes the box size, position, and depth in real time.
+6. Closing both hands into fists captures the box.
+7. The user can say: **“Make it metallic,” “delete it,” “duplicate it,”** or **“make it larger.”**
 
 The box must follow the hands smoothly, without visible jumps, flickering gesture states, or unstable geometry.
 
@@ -48,7 +47,7 @@ Voice response and visual feedback
 The system will be divided into these layers:
 
 1. **Capture** – camera frames, microphone input, timestamps, and device health.
-2. **Perception** – hand detection, handedness, landmarks, pinch state, palm pose, and confidence.
+2. **Perception** – hand detection, handedness, landmarks, fingertip anchors, fist pose, and confidence.
 3. **World coordinates** – convert image coordinates into a stable 3D interaction space.
 4. **Motion processing** – smoothing, velocity, acceleration, confidence handling, and lost-hand recovery.
 5. **Interaction engine** – create, grab, resize, move, rotate, release, undo, and reset.
@@ -191,8 +190,8 @@ The first milestone intentionally avoids expensive hardware. We should prove the
 ### Phase 2 – Two-hand tracking and motion data
 
 - Track two hands and identify left versus right.
-- Extract wrist, palm, thumb, and index positions.
-- Detect pinch start, hold, movement, and release.
+- Extract wrist, palm, thumb, index, and middle-fingertip positions.
+- Detect a stable two-hand fist capture pose.
 - Add smoothing without introducing unacceptable latency.
 - Handle temporary hand loss and occlusion.
 
@@ -203,16 +202,16 @@ The first milestone intentionally avoids expensive hardware. We should prove the
 - Define a virtual workspace in front of the camera.
 - Map hand landmarks into a stable 3D coordinate system.
 - Add calibration and a visible origin/grid.
-- Show hand rays, pinch points, axes, and confidence.
+- Show fingertip anchors, box axes, and confidence.
 
 **Exit criterion:** the user can understand where their hands are in the virtual scene.
 
 ### Phase 4 – First 3D object
 
 - Render a Three.js scene with a grid and lighting.
-- Use two pinch points as opposite corners of a preview box.
+- Use six fingertip anchors to infer and preview an eight-vertex box.
 - Update position and dimensions at interactive frame rate.
-- Add smooth interpolation and release/commit behavior.
+- Add smooth interpolation and fist-based commit behavior.
 - Add reset and undo.
 
 **Exit criterion:** the user can create a stable box repeatedly in under ten seconds.
@@ -257,9 +256,8 @@ The first gesture vocabulary should stay small:
 | Interaction | Meaning |
 |---|---|
 | Both hands visible | Enter spatial interaction context |
-| Both thumb-index pinches | Begin box creation or grab |
-| Pinch held | Continue transformation |
-| Pinch release | Commit or release object |
+| Six fingertips visible | Preview the box model |
+| Both fists held | Capture/commit the box |
 | Open palm | Pause interaction / safety stop |
 | Hands apart/together | Change size |
 | Midpoint movement | Move object |
@@ -334,11 +332,40 @@ Build a minimal camera application that:
 1. Opens the webcam.
 2. Tracks up to two hands.
 3. Draws landmarks and handedness.
-4. Calculates pinch points and confidence.
+4. Calculates six fingertip anchors and fist state.
 5. Displays frame rate and latency.
 6. Logs a short recording for later testing.
 
 Only after this is stable should we build the 3D box interaction.
+
+## Phase 1 quickstart
+
+The first diagnostic is implemented in `vision_service/main.py`.
+
+```bash
+cd "/Users/duybeobn1/Projects/Jarvis Vision"
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python scripts/download_hand_model.py
+python -m vision_service.main
+```
+
+Press **Q** or **Escape** in the camera window to stop it. Use `--camera 1` if the desired webcam is not camera index 0. Use `--no-mirror` when the camera feed should not behave like a mirror.
+
+On macOS, grant Camera access to the terminal or application that launches Python in **System Settings → Privacy & Security → Camera**. The diagnostic currently uses the CPU delegate for predictable first-prototype behavior.
+
+The Phase 1 window reports the number of detected hands, handedness, confidence, fist capture state, FPS, inference time, and total loop time. It is intentionally a measurement tool before it becomes a polished interface.
+
+### Current Phase 1 interaction
+
+The active Phase 1 interaction is the six-anchor box experiment. The old two-pinch rectangle workflow has been removed so the prototype can focus on modeling geometry directly.
+
+### Six-anchor box experiment
+
+The diagnostic also experiments with a six-anchor wireframe: the thumb, index, and middle fingertips of the left hand define three corresponding points on one face, while the same three fingertips on the right hand define the opposite face. The missing fourth point on each rectangular face is inferred from the other three points. This produces an eight-vertex box model from six tracked fingertip anchors. The current overlay uses approximate MediaPipe depth and is a geometry experiment, not yet calibrated world-space 3D.
+
+To capture the six-anchor model, close both hands into fists and hold for roughly half a second. The last stable wireframe is frozen in green as `BOX CAPTURED`. Press **C** to clear captured virtual geometry.
 
 ## Guiding principle
 
