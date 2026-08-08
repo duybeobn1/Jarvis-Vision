@@ -367,6 +367,44 @@ The diagnostic also experiments with a six-anchor wireframe: the thumb, index, a
 
 To capture the six-anchor model, close both hands into fists and hold for roughly half a second. The last stable wireframe is frozen in green as `BOX CAPTURED`. Press **C** to clear captured virtual geometry.
 
+## Three.js 3D scene milestone
+
+The first interactive 3D scene is implemented in `scene_client/`. It replaces the OpenCV wireframe with a real Three.js box mesh, a virtual grid, lighting, camera controls, and a local WebSocket connection to the Python vision service.
+
+Start the vision service in one terminal:
+
+```bash
+cd "/Users/duybeobn1/Projects/Jarvis Vision"
+source .venv/bin/activate
+python -m vision_service.stream
+```
+
+Start the browser client in a second terminal:
+
+```bash
+cd "/Users/duybeobn1/Projects/Jarvis Vision/scene_client"
+npm install
+npm run dev
+```
+
+Open the local Vite URL printed in the second terminal. The current interaction loop is:
+
+- Six fingertips create a smoothed magenta box preview.
+- Hold both hands as fists for 12 frames to capture the box.
+- After capture, use only the right hand for manipulation.
+- Select **Zoom / Dezoom** in the left debug menu, then bring the right thumb and index together to engage zoom; move them apart to zoom in and together to zoom out. Close the right hand into a fist to stop zooming, then open it before starting another pinch. Zoom recognition is isolated from rotation in this mode.
+- Select **Rotation** in the left debug menu, then move the five right-hand fingertips together left/right to rotate 90° around the vertical axis, or down/up to rotate 90° around the horizontal axis. The fingertip centroid is smoothed, a one-second cooldown follows each turn, and the hand must return to its neutral position before another swipe. Close the right hand into a fist to stop the current rotation and reset the gesture state; the box keeps its current orientation. Pinch recognition is isolated from rotation in this mode.
+- The keyboard shortcuts **1** and **2** select the same modes.
+- Hold a right-hand **number one** pose—index finger extended, other fingers folded—to toggle between Zoom / Dezoom and Rotation. Release it before toggling again.
+- The on-screen event log records mode changes, zoom/dezoom direction, fist stops/resets, rotation direction, capture, and clear events.
+- Press **C** to clear the box and return to preview mode.
+
+The browser now displays the mirrored camera image behind the transparent Three.js scene, so the real hand and room remain visible while the box is overlaid. The browser scene still maps MediaPipe's normalized coordinates into an illustrative workspace; it is not true physical world space yet, so apparent depth and perspective can still feel approximate. The next tracking upgrade is an Ultraleap or depth camera, followed by camera calibration and a stable world-coordinate transform.
+
+The camera view also shows the MediaPipe hand skeleton for each detected hand. Fingertips are highlighted with larger white points, while cyan and orange skeleton colors distinguish the left and right hands.
+
+During Rotation mode, the four-direction HUD highlights the active left, right, up, or down rotation for the current turn and cooldown.
+
 ## Guiding principle
 
 Build the system in layers that can be measured independently: perception, motion, interaction, geometry, rendering, and language. The final experience may feel like magic, but each layer must remain observable, testable, and replaceable.

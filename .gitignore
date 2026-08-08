@@ -4,6 +4,8 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
+scene_client/node_modules/
+scene_client/dist/
 
 # Downloaded ML assets and local recordings
 models/*.task

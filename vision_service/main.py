@@ -55,6 +55,14 @@ ANCHOR_FINGERS: tuple[tuple[int, str], ...] = (
     (12, "middle"),
 )
 
+FINGERTIP_FINGERS: tuple[tuple[int, str], ...] = (
+    (4, "thumb"),
+    (8, "index"),
+    (12, "middle"),
+    (16, "ring"),
+    (20, "pinky"),
+)
+
 
 class PerformanceCounter:
     """Tracks display FPS over a short rolling window."""
@@ -77,6 +85,15 @@ def distance_2d(a: object, b: object) -> float:
     return math.hypot(float(a.x) - float(b.x), float(a.y) - float(b.y))
 
 
+def pinch_ratio(landmarks: list[object]) -> float:
+    """Normalize thumb-index distance for object-grab detection."""
+
+    wrist = landmarks[0]
+    middle_mcp = landmarks[9]
+    palm_length = max(distance_2d(wrist, middle_mcp), 1e-6)
+    return distance_2d(landmarks[4], landmarks[8]) / palm_length
+
+
 def fist_ratio(landmarks: list[object]) -> float:
     """Return the most extended non-thumb finger's palm-relative distance."""
 
@@ -96,6 +113,28 @@ def is_fist(landmarks: list[object]) -> bool:
     """Detect a closed-fist capture pose with a conservative threshold."""
 
     return fist_ratio(landmarks) < 1.65
+
+
+def is_number_one(landmarks: list[object]) -> bool:
+    """Detect an index-up, other-fingers-folded number-one pose."""
+
+    wrist = landmarks[0]
+    middle_mcp = landmarks[9]
+    palm_length = max(distance_2d(wrist, middle_mcp), 1e-6)
+    ratios = {
+        "thumb": distance_2d(landmarks[4], wrist) / palm_length,
+        "index": distance_2d(landmarks[8], wrist) / palm_length,
+        "middle": distance_2d(landmarks[12], wrist) / palm_length,
+        "ring": distance_2d(landmarks[16], wrist) / palm_length,
+        "pinky": distance_2d(landmarks[20], wrist) / palm_length,
+    }
+    return (
+        ratios["index"] > 1.65
+        and ratios["middle"] < 1.55
+        and ratios["ring"] < 1.55
+        and ratios["pinky"] < 1.55
+        and ratios["thumb"] < 1.75
+    )
 
 
 def normalized_to_pixel(landmark: object, width: int, height: int) -> tuple[int, int]:

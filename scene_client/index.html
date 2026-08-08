@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jarvis Vision 3D Scene</title>
+  </head>
+  <body>
+    <img id="camera-feed" alt="Live camera background" />
+    <canvas id="landmark-overlay" aria-hidden="true"></canvas>
+    <div id="app">
+      <div id="status" class="status">Connecting to vision stream…</div>
+      <div class="debug-menu" aria-label="Interaction mode">
+        <div class="menu-title">Interaction mode</div>
+        <button id="mode-zoom" class="mode-button active" type="button">Zoom / Dezoom</button>
+        <button id="mode-rotation" class="mode-button" type="button">Rotation</button>
+      </div>
+      <div class="event-log" aria-live="polite">
+        <div class="menu-title">Event log</div>
+        <div id="log-lines" class="log-lines"></div>
+      </div>
+      <div class="rotation-hud" aria-label="Rotation direction">
+        <div class="menu-title">Rotation direction</div>
+        <div class="arrow-grid">
+          <span></span><span id="arrow-up" class="direction-arrow">↑</span><span></span>
+          <span id="arrow-left" class="direction-arrow">←</span><span class="arrow-center">✦</span><span id="arrow-right" class="direction-arrow">→</span>
+          <span></span><span id="arrow-down" class="direction-arrow">↓</span><span></span>
+        </div>
+      </div>
+      <div class="help">
+        <strong>Six fingertips</strong> preview the box ·
+        <strong>both fists</strong> capture ·
+        <strong>right pinch</strong> zooms ·
+        <strong>right five-fingertip swipe</strong> rotates ·
+        <strong>right fist</strong> stops rotation ·
+        <strong>right number one</strong> switches mode ·
+        <strong>white points</strong> are fingertips ·
+        <strong>C</strong> clears
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
