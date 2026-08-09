@@ -109,6 +109,8 @@ canvas {
   color: #d0ffe0;
 }
 
+.file-button { cursor: pointer; }
+
 .event-log {
   position: fixed;
   z-index: 3;

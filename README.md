@@ -405,6 +405,12 @@ The camera view also shows the MediaPipe hand skeleton for each detected hand. F
 
 During Rotation mode, the four-direction HUD highlights the active left, right, up, or down rotation for the current turn and cooldown.
 
+### Calibration and virtual object selection
+
+The browser client now keeps image coordinates, calibrated workspace coordinates, and Three.js scene coordinates separate. Press **K** or click **Calibrate workspace** while both hands are visible and separated. Calibration is intentionally camera-relative; it does not create metric physical depth.
+
+The **Selection** mode uses the right index fingertip as a virtual cursor and a confirmed pinch to select a visible scene object. Use **Load .glb / .obj** to import a local model. The imported model is normalized, registered in the scene-object registry, highlighted with a selection box, and can then use the existing Zoom / Dezoom and Rotation modes. Press **C** to clear imported models and return to the box preview.
+
 ## Guiding principle
 
 Build the system in layers that can be measured independently: perception, motion, interaction, geometry, rendering, and language. The final experience may feel like magic, but each layer must remain observable, testable, and replaceable.

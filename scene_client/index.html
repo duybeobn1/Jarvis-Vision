@@ -14,6 +14,12 @@
         <div class="menu-title">Interaction mode</div>
         <button id="mode-zoom" class="mode-button active" type="button">Zoom / Dezoom</button>
         <button id="mode-rotation" class="mode-button" type="button">Rotation</button>
+        <button id="mode-selection" class="mode-button" type="button">Selection</button>
+        <button id="mode-move" class="mode-button" type="button">Move</button>
+        <button id="create-box" class="mode-button" type="button">Create Box</button>
+        <label class="mode-button file-button" for="model-file">Load .glb / .obj</label>
+        <input id="model-file" type="file" accept=".glb,.obj" hidden />
+        <button id="calibrate-workspace" class="mode-button" type="button">Calibrate workspace (K)</button>
       </div>
       <div class="event-log" aria-live="polite">
         <div class="menu-title">Event log</div>
@@ -33,9 +39,13 @@
         <strong>right pinch</strong> zooms ·
         <strong>right five-fingertip swipe</strong> rotates ·
         <strong>right fist</strong> stops rotation ·
-        <strong>right number one</strong> switches mode ·
+        <strong>selection pinch</strong> picks a model ·
+        <strong>move pinch</strong> drags the selected model ·
+        <strong>Create Box</strong> starts another two-hand capture ·
         <strong>white points</strong> are fingertips ·
-        <strong>C</strong> clears
+        <strong>K</strong> calibrates workspace ·
+        <strong>C</strong> clears ·
+        <strong>L</strong> downloads telemetry
       </div>
     </div>
     <script type="module" src="/src/main.js"></script>
