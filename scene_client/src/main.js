@@ -1,7 +1,12 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import { cameraPointToNdc, pinchRatioIsEngaged } from './selectionMath.js';
+import {
+  ballImpactCanTrigger,
+  ballPalmPlanarDistance,
+  cameraPointToNdc,
+  pinchRatioIsEngaged,
+} from './selectionMath.js';
 import './style.css';
 
 const statusElement = document.querySelector('#status');
@@ -12,9 +17,11 @@ const zoomModeButton = document.querySelector('#mode-zoom');
 const rotationModeButton = document.querySelector('#mode-rotation');
 const selectionModeButton = document.querySelector('#mode-selection');
 const moveModeButton = document.querySelector('#mode-move');
+const ballModeButton = document.querySelector('#mode-ball');
 const modelFileInput = document.querySelector('#model-file');
 const calibrationButton = document.querySelector('#calibrate-workspace');
 const createBoxButton = document.querySelector('#create-box');
+const createBallButton = document.querySelector('#create-ball');
 const logLinesElement = document.querySelector('#log-lines');
 const directionElements = {
   left: document.querySelector('#arrow-left'),
@@ -93,6 +100,8 @@ vertexMarkers.forEach((marker) => boxGroup.add(marker));
 
 const sceneObjects = new Map();
 let boxSequence = 1;
+let ballSequence = 1;
+const ballPhysics = new Map();
 const selectionHelper = new THREE.BoxHelper(undefined, 0x65ff9b);
 selectionHelper.visible = false;
 scene.add(selectionHelper);
@@ -208,6 +217,8 @@ function resolveInteractionState() {
     'move-candidate': 'move-candidate',
     'move-grabbed': 'move-active',
     'move-released': 'move-ready',
+    'ball-ready': 'ball-ready',
+    'ball-contact': 'ball-contact',
     zoom: 'zoom-active',
     'zoom-min': 'zoom-limit',
     'zoom-max': 'zoom-limit',
@@ -615,6 +626,102 @@ function updateMoveMode(right) {
   state.rightMode = 'move-grabbed';
 }
 
+function palmCenterFromHand(hand) {
+  const landmarks = hand.landmarks || [];
+  const palmIndices = [0, 5, 9, 13, 17];
+  const points = palmIndices.map((index) => landmarks[index]);
+  if (!points.every((point) => Array.isArray(point) && point.length === 3)) {
+    return Array.isArray(hand.wrist) ? hand.wrist : null;
+  }
+  const center = points.reduce(
+    (sum, point) => sum.add(new THREE.Vector3(point[0], point[1], point[2])),
+    new THREE.Vector3(),
+  ).multiplyScalar(1 / points.length);
+  return [center.x, center.y, center.z];
+}
+
+function updateBallMode(right) {
+  const root = getInteractionRoot();
+  const physics = ballPhysics.get(state.selectedObjectId);
+  if (!root?.visible || root.userData.jarvisObjectType !== 'ball' || !physics) {
+    state.rightMode = 'idle';
+    return;
+  }
+
+  const palmPoint = palmCenterFromHand(right);
+  if (!palmPoint) {
+    state.rightMode = 'idle';
+    return;
+  }
+  const handPosition = normalizedToScene(palmPoint);
+  const now = performance.now();
+  if (!physics.lastHandPosition) {
+    physics.lastHandPosition = handPosition;
+    physics.lastHandTime = now;
+    state.rightMode = 'ball-ready';
+    return;
+  }
+
+  const deltaSeconds = THREE.MathUtils.clamp((now - physics.lastHandTime) / 1000, 0.001, 0.1);
+  const handVelocity = handPosition.clone()
+    .sub(physics.lastHandPosition)
+    .multiplyScalar(1 / deltaSeconds);
+  physics.lastHandPosition.copy(handPosition);
+  physics.lastHandTime = now;
+
+  const radius = BALL_RADIUS * root.scale.x;
+  const contactDistance = radius + BALL_HAND_RADIUS;
+  const distance = ballPalmPlanarDistance(
+    [root.position.x, root.position.y, root.position.z],
+    [handPosition.x, handPosition.y, handPosition.z],
+  );
+  const handSpeed = handVelocity.length();
+  const separated = distance > contactDistance + 0.08;
+  if (handSpeed < BALL_HAND_SETTLE_SPEED) physics.motionReset = true;
+  if (separated) {
+    physics.contacting = false;
+    physics.motionReset = false;
+  }
+
+  const canImpact = ballImpactCanTrigger({
+    contacting: physics.contacting,
+    motionReset: physics.motionReset,
+    separated,
+    handSpeed,
+    speedThreshold: BALL_TAP_SPEED_THRESHOLD,
+  });
+  if (distance <= contactDistance && now >= physics.contactCooldownUntil && canImpact) {
+    if (!physics.contacting || physics.motionReset) {
+      if (handSpeed >= BALL_TAP_SPEED_THRESHOLD) {
+        const launchVelocity = handVelocity.clone();
+        launchVelocity.y = Math.max(launchVelocity.y, 0.65);
+        launchVelocity.z *= 0.4;
+        physics.velocity.copy(
+          launchVelocity.normalize().multiplyScalar(
+            THREE.MathUtils.clamp(handSpeed * 1.45 + 1.5, 2.5, 6.8),
+          ),
+        );
+        logEvent('Ball tapped · launched', 'ball_interaction', {
+          objectId: state.selectedObjectId,
+          handSpeed: Number(handSpeed.toFixed(3)),
+        });
+      } else {
+        physics.velocity.set(handVelocity.x * 0.35, 2.8, handVelocity.z * 0.35);
+        logEvent('Ball bounced from palm', 'ball_interaction', {
+          objectId: state.selectedObjectId,
+        });
+      }
+      physics.contactCooldownUntil = now + BALL_CONTACT_COOLDOWN_MS;
+      physics.motionReset = false;
+    }
+    physics.contacting = true;
+    state.rightMode = 'ball-contact';
+    return;
+  }
+
+  state.rightMode = 'ball-ready';
+}
+
 function armBoxCreation() {
   state.selectedObjectId = 'box';
   state.selectedObjectType = 'primitive';
@@ -659,10 +766,62 @@ function capturePreviewBox() {
   statusElement.textContent = `${id} created · choose Selection, Move, Zoom, or Rotation`;
 }
 
+function createBall() {
+  const id = `ball-${ballSequence}`;
+  ballSequence += 1;
+  const root = new THREE.Group();
+  const material = new THREE.MeshStandardMaterial({
+    color: 0x38cfff,
+    emissive: 0x064e72,
+    emissiveIntensity: 1.25,
+    metalness: 0.35,
+    roughness: 0.18,
+  });
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(BALL_RADIUS, 32, 24),
+    material,
+  );
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  root.add(mesh);
+
+  const halo = new THREE.Mesh(
+    new THREE.TorusGeometry(BALL_RADIUS * 1.08, 0.012, 8, 48),
+    new THREE.MeshBasicMaterial({ color: 0x9ceeff, transparent: true, opacity: 0.78 }),
+  );
+  halo.rotation.x = Math.PI / 2;
+  root.add(halo);
+
+  root.position.set(0, grid.position.y + BALL_RADIUS, 0);
+  scene.add(root);
+  registerSceneObject(id, root, 'ball');
+  ballPhysics.set(id, {
+    velocity: new THREE.Vector3(),
+    lastHandPosition: null,
+    lastHandTime: 0,
+    contacting: false,
+    motionReset: false,
+    contactCooldownUntil: 0,
+  });
+  state.captured = true;
+  state.captureArmed = false;
+  state.previewTransform = null;
+  state.baseScale = null;
+  boxGroup.visible = false;
+  selectSceneObject(id, 'ball-create');
+  setInteractionMode('ball');
+  logEvent(`Ball created: ${id}`, 'scene_action', {
+    action: 'ball-create',
+    objectId: id,
+  });
+  statusElement.textContent = `${id} created · use Ball Play to bounce or tap-launch it`;
+}
+
 function clearScene() {
   for (const [id, record] of sceneObjects) {
     if (id === 'box') continue;
     scene.remove(record.root);
+    ballPhysics.delete(id);
     sceneObjects.delete(id);
   }
   state.selectedObjectId = 'box';
@@ -788,6 +947,7 @@ function setInteractionMode(mode) {
   rotationModeButton.classList.toggle('active', mode === 'rotation');
   selectionModeButton.classList.toggle('active', mode === 'selection');
   moveModeButton.classList.toggle('active', mode === 'move');
+  ballModeButton.classList.toggle('active', mode === 'ball');
   logEvent(
     mode === 'zoom'
       ? 'Mode: Zoom / Dezoom'
@@ -795,7 +955,9 @@ function setInteractionMode(mode) {
         ? 'Mode: Rotation'
         : mode === 'selection'
           ? 'Mode: Selection'
-          : 'Mode: Move',
+          : mode === 'move'
+            ? 'Mode: Move'
+            : 'Mode: Ball Play',
   );
   syncInteractionState('mode-selected');
   if (state.captured) {
@@ -805,7 +967,9 @@ function setInteractionMode(mode) {
         ? 'Rotation mode · wave with the right hand'
         : mode === 'selection'
           ? 'Selection mode · pinch the right index cursor'
-          : 'Move mode · pinch and drag the selected model';
+          : mode === 'move'
+            ? 'Move mode · pinch and drag the selected model'
+            : 'Ball Play · move your palm toward the ball';
   }
 }
 
@@ -826,6 +990,13 @@ const FINGERTIP_SWIPE_RESET_DISTANCE = 0.16;
 const FINGERTIP_POSITION_SMOOTHING = 0.28;
 const ROTATION_COOLDOWN_MS = 1000;
 const ROTATION_DURATION_MS = 360;
+const BALL_RADIUS = 0.34;
+const BALL_GRAVITY = 7.4;
+const BALL_RESTITUTION = 0.72;
+const BALL_HAND_RADIUS = 0.28;
+const BALL_TAP_SPEED_THRESHOLD = 1.15;
+const BALL_HAND_SETTLE_SPEED = 0.42;
+const BALL_CONTACT_COOLDOWN_MS = 180;
 
 function zoomBounds() {
   const base = state.baseScale || getInteractionRoot().scale;
@@ -949,6 +1120,13 @@ function fiveFingertipCentroid(hand) {
 function updateRightHand(message) {
   const right = message.hands?.right;
   if (!right?.wrist) {
+    const physics = ballPhysics.get(state.selectedObjectId);
+    if (physics) {
+      physics.lastHandPosition = null;
+      physics.lastHandTime = 0;
+      physics.contacting = false;
+      physics.motionReset = false;
+    }
     state.rightHand = null;
     state.rightMode = 'idle';
     return;
@@ -961,6 +1139,11 @@ function updateRightHand(message) {
 
   if (state.interactionMode === 'move') {
     updateMoveMode(right);
+    return;
+  }
+
+  if (state.interactionMode === 'ball') {
+    updateBallMode(right);
     return;
   }
 
@@ -1203,7 +1386,12 @@ function processVision(message) {
       ? `Hold fists to capture · ${state.captureFrames}/12`
       : `Preview · ${handCount}/2 hands · six anchors`;
   } else if (!message.hands?.right) {
-    statusElement.textContent = `${state.selectedObjectType === 'imported' ? 'Model selected' : 'Box captured'} · show your right hand`;
+    const selectedLabel = state.selectedObjectType === 'imported'
+      ? 'Model selected'
+      : state.selectedObjectType === 'ball'
+        ? 'Ball selected'
+        : 'Box captured';
+    statusElement.textContent = `${selectedLabel} · show your right hand`;
   } else if (state.interactionMode === 'selection' && state.rightMode === 'selection-ready') {
     statusElement.textContent = 'Selection mode · move the right index cursor and pinch';
   } else if (state.interactionMode === 'selection' && state.rightMode === 'selection-candidate') {
@@ -1216,6 +1404,10 @@ function processVision(message) {
     statusElement.textContent = 'Move grabbed · drag right hand, release pinch to drop';
   } else if (state.interactionMode === 'move' && state.rightMode === 'move-released') {
     statusElement.textContent = 'Move released · pinch again to grab';
+  } else if (state.interactionMode === 'ball' && state.rightMode === 'ball-contact') {
+    statusElement.textContent = 'Ball contact · bounce or tap to launch';
+  } else if (state.interactionMode === 'ball' && state.rightMode === 'ball-ready') {
+    statusElement.textContent = 'Ball Play · move your palm toward the ball';
   } else if (state.rightMode === 'zoom') {
     statusElement.textContent = 'Right pinch · move thumb and index to zoom';
   } else if (state.rightMode === 'zoom-min') {
@@ -1239,7 +1431,9 @@ function processVision(message) {
         ? 'Rotation mode · wave with the right hand'
         : state.interactionMode === 'selection'
           ? 'Selection mode · pinch the right index cursor'
-          : 'Move mode · pinch and drag the selected model';
+          : state.interactionMode === 'move'
+            ? 'Move mode · pinch and drag the selected model'
+            : 'Ball Play · move your palm toward the ball';
   }
 }
 
@@ -1269,7 +1463,9 @@ zoomModeButton.addEventListener('click', () => setInteractionMode('zoom'));
 rotationModeButton.addEventListener('click', () => setInteractionMode('rotation'));
 selectionModeButton.addEventListener('click', () => setInteractionMode('selection'));
 moveModeButton.addEventListener('click', () => setInteractionMode('move'));
+ballModeButton.addEventListener('click', () => setInteractionMode('ball'));
 createBoxButton.addEventListener('click', armBoxCreation);
+createBallButton.addEventListener('click', createBall);
 calibrationButton.addEventListener('click', calibrateWorkspace);
 modelFileInput.addEventListener('change', async (event) => {
   const [file] = event.target.files || [];
@@ -1303,8 +1499,53 @@ window.addEventListener('resize', () => {
   resizeLandmarkCanvas();
 });
 
+function updateBallPhysics(deltaSeconds) {
+  for (const [id, physics] of ballPhysics) {
+    const root = sceneObjects.get(id)?.root;
+    if (!root?.visible) continue;
+    const radius = BALL_RADIUS * root.scale.x;
+    physics.velocity.y -= BALL_GRAVITY * deltaSeconds;
+    root.position.addScaledVector(physics.velocity, deltaSeconds);
+
+    const floorY = grid.position.y + radius;
+    if (root.position.y < floorY) {
+      root.position.y = floorY;
+      if (Math.abs(physics.velocity.y) > 0.45) {
+        physics.velocity.y = Math.abs(physics.velocity.y) * BALL_RESTITUTION;
+      } else {
+        physics.velocity.y = 0;
+      }
+      physics.velocity.x *= 0.84;
+      physics.velocity.z *= 0.84;
+    }
+
+    const boundaryX = 3.35;
+    const boundaryZ = 2.35;
+    if (Math.abs(root.position.x) > boundaryX) {
+      root.position.x = THREE.MathUtils.clamp(root.position.x, -boundaryX, boundaryX);
+      physics.velocity.x *= -0.62;
+    }
+    if (Math.abs(root.position.z) > boundaryZ) {
+      root.position.z = THREE.MathUtils.clamp(root.position.z, -boundaryZ, boundaryZ);
+      physics.velocity.z *= -0.62;
+    }
+
+    const horizontalDamping = Math.pow(0.985, deltaSeconds * 60);
+    physics.velocity.x *= horizontalDamping;
+    physics.velocity.z *= horizontalDamping;
+    root.rotation.x += physics.velocity.z * deltaSeconds * 0.8;
+    root.rotation.z -= physics.velocity.x * deltaSeconds * 0.8;
+  }
+}
+
+let lastRenderTime = performance.now();
+
 function render() {
   requestAnimationFrame(render);
+  const now = performance.now();
+  const deltaSeconds = THREE.MathUtils.clamp((now - lastRenderTime) / 1000, 0, 0.05);
+  lastRenderTime = now;
+  updateBallPhysics(deltaSeconds);
   if (state.rotationDirection && performance.now() >= state.rotationDirectionUntil) {
     clearRotationDirection();
   }

@@ -17,3 +17,21 @@ export function pinchRatioIsEngaged(ratio, threshold) {
   const numericRatio = Number(ratio);
   return Number.isFinite(numericRatio) && numericRatio < threshold;
 }
+
+export function ballImpactCanTrigger({
+  contacting,
+  motionReset,
+  separated,
+  handSpeed,
+  speedThreshold,
+}) {
+  if (separated || !contacting) return true;
+  return motionReset && handSpeed >= speedThreshold;
+}
+
+export function ballPalmPlanarDistance(ballPosition, handPosition) {
+  return Math.hypot(
+    ballPosition[0] - handPosition[0],
+    ballPosition[1] - handPosition[1],
+  );
+}
